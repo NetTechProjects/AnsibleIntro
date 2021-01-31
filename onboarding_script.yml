@@ -1,0 +1,129 @@
+---
+
+- name: Onboarding Script
+  connection: ansible.netcommon.network_cli
+  gather_facts: false
+  hosts: all
+
+  vars_prompt:
+    - name: "primary_snmp_host"
+      prompt: "Enter the primary SNMP host IP address"
+      private: no
+    - name: "secondary_snmp_host"
+      prompt: "Enter the secondary SNMP host IP address"
+      private: no
+    - name: "timezone_offset"
+      prompt: "Enter the timezone offset (ex, CST -6)"
+      private: no
+    - name: "timezone"
+      prompt: "Enter the timezone abbreviation (ex, CDT)"
+      private: no
+    - name: "ntp_primary"
+      prompt: "Enter the primary NTP server IP address"
+      private: no
+    - name: "ntp_secondary"
+      prompt: "Enter the secondary NTP server IP address (or enter for none)"
+      private: no
+
+  tasks:
+
+  ##
+  ##  CISCO IOS DEVICE TASKS
+  ##
+
+  - name: IOS // SNMP config
+    cisco.ios.ios_config:
+      lines:
+        - permit {{ primary_snmp_host }}
+        - permit {{ secondary_snmp_host }}
+        - snmp-server view SNMP_VIEW mib-2 included
+        - snmp-server group SNMP_GROUP v3 priv read SNMP_VIEW write SNMP_VIEW access ACL_SNMP
+        - snmp-server user snmppoller SNMP_GROUP v3 auth sha firstPassword priv aes 128 secondPassword access ACL_SNMP
+      parents: ip access-list standard ACL_SNMP
+      before: no ip access-list standard ACL_SNMP
+    when: "'ios' in group_names and primary_snmp_host is defined and secondary_snmp_host is defined"
+    
+  - name: IOS // device hardening config
+    cisco.ios.ios_config:
+      lines:
+        - service tcp-keepalives-in
+        - service tcp-keepalives-out
+        - service timestamps debug datetime msec localtime show-timezone year
+        - service timestamps log datetime msec localtime show-timezone year
+        - service password-encryption
+        - service compress-config
+        - service sequence-numbers
+        - service call-home
+        - login block-for 5 attempts 3 within 10
+    when: "'ios' in group_names"
+
+  - name: IOS // logging config
+    cisco.ios.ios_config:
+      lines:
+        - logging count
+        - logging snmp-authfail
+        - logging buffered 512000
+        - no logging console
+    when: "'ios' in group_names"
+
+  - name: IOS // primary NTP server config
+    cisco.ios.ios_config:
+      lines:
+        - ntp server {{ ntp_primary }} prefer
+    when: "ntp_primary is defined and 'ios' in group_names"
+
+  - name: IOS // secondary NTP server config
+    cisco.ios.ios_config:
+      lines:
+        - ntp server {{ ntp_secondary }}
+    when: "ntp_secondary is defined and 'ios' in group_names"
+
+  - name: IOS // timezone config
+    cisco.ios.ios_config:
+      lines:
+        - clock timezone {{ timezone_offset }}
+        - clock summer-time {{ timezone }} recurring
+    when: "timezone is defined and timezone_offset is defined and 'ios' in group_names"
+
+  ##
+  ##  CISCO ASA DEVICE TASKS
+  ##
+
+  - name: ASA // SNMP config
+    cisco.asa.asa_config:
+      lines:
+        - snmp-server enable
+        - snmp-server host outside {{ primary_snmp_host }}
+        - snmp-server host outside {{ secondary_snmp_host }}
+        - snmp-server group SNMP_GROUP v3 priv
+        - snmp-server user snmppoller SNMP_GROUP v3 auth sha firstPassword priv aes 128 secondPassword
+    when: "'asa' in group_names and primary_snmp_host is defined and secondary_snmp_host is defined"
+
+  - name: ASA // logging config
+    cisco.asa.asa_config:
+      lines:
+        - logging enable
+        - logging timestamp
+        - logging buffer-size 512000
+        - no logging console
+    when: "'asa' in group_names"
+
+  - name: ASA // primary NTP server config
+    cisco.asa.asa_config:
+      lines:
+        - ntp server {{ ntp_primary }} prefer
+    when: "ntp_primary is defined and 'asa' in group_names"
+
+  - name: ASA // secondary NTP server config
+    cisco.asa.asa_config:
+      lines:
+        - ntp server {{ ntp_secondary }}
+    when: "ntp_secondary is defined and 'asa' in group_names"
+
+  - name: ASA // timezone config
+    cisco.asa.asa_config:
+      lines:
+        - clock timezone {{ timezone_offset }}
+        - clock summer-time {{ timezone }} recurring
+    when: "timezone is defined and timezone_offset is defined and 'asa' in group_names"
+

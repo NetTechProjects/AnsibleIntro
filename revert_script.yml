@@ -1,0 +1,109 @@
+---
+
+- name: Revert Onboarding Script
+  connection: ansible.netcommon.network_cli
+  gather_facts: false
+  hosts: all
+
+  vars_prompt:
+    - name: "primary_snmp_host"
+      prompt: "Enter the primary SNMP host IP address"
+      private: no
+    - name: "secondary_snmp_host"
+      prompt: "Enter the secondary SNMP host IP address"
+      private: no
+    - name: "ntp_primary"
+      prompt: "Enter the primary NTP server IP address"
+      private: no
+    - name: "ntp_secondary"
+      prompt: "Enter the secondary NTP server IP address (or enter for none)"
+      private: no
+
+  tasks:
+
+  ##
+  ##  CISCO IOS DEVICE TASKS
+  ##
+
+  - name: IOS // REVERT SNMP config
+    cisco.ios.ios_config:
+      lines:
+        - no ip access-list standard ACL_SNMP
+        - no snmp-server view SNMP_VIEW mib-2 included
+        - no snmp-server group SNMP_GROUP v3 priv read SNMP_VIEW write SNMP_VIEW access ACL_SNMP
+        - no snmp-server user snmppoller MIT_GROUP v3 auth sha firstPassword priv aes 128 secondPassword access ACL_SNMP
+    when: "'ios' in group_names"
+    
+  - name: IOS // REVERT device hardening config
+    cisco.ios.ios_config:
+      lines:
+        - no service tcp-keepalives-in
+        - no service tcp-keepalives-out
+        - no service timestamps debug datetime msec localtime show-timezone year
+        - no service timestamps log datetime msec localtime show-timezone year
+        - no service password-encryption
+        - no service compress-config
+        - no service sequence-numbers
+        - no service call-home
+        - no login block-for 5 attempts 3 within 10
+    when: "'ios' in group_names"
+
+  - name: IOS // REVERT logging config
+    cisco.ios.ios_config:
+      lines:
+        - no logging count
+        - no logging snmp-authfail
+        - no logging buffered 512000
+        - no logging console
+    when: "'ios' in group_names"
+
+  - name: IOS // REVERT primary NTP server config
+    cisco.ios.ios_config:
+      lines:
+        - no ntp server {{ ntp_primary }} prefer
+    when: "ntp_primary is defined and 'ios' in group_names"
+
+  - name: IOS // REVERT secondary NTP server config
+    cisco.ios.ios_config:
+      lines:
+        - no ntp server {{ ntp_secondary }}
+    when: "ntp_secondary is defined and 'ios' in group_names"
+
+  - name: IOS // REVERT timezone config
+    cisco.ios.ios_config:
+      lines:
+        - clock timezone MST -7 0
+        - clock summer-time MDT recurring
+    when: "'ios' in group_names"
+
+  # ##
+  # ##  CISCO ASA DEVICE TASKS
+  # ##
+
+  - name: ASA // REVERT SNMP config
+    cisco.asa.asa_config:
+      lines:
+        - no snmp-server host outside {{ primary_snmp_host }}
+        - no snmp-server host outside {{ secondary_snmp_host }}
+        - no snmp-server user snmppoller SNMP_GROUP v3 auth sha firstPassword priv aes 128 secondPassword
+        - no snmp-server group SNMP_GROUP v3 priv
+    when: "'asa' in group_names and primary_snmp_host is defined and secondary_snmp_host is defined"
+
+  - name: ASA // REVERT primary NTP server config
+    cisco.asa.asa_config:
+      lines:
+        - no ntp server {{ ntp_primary }} prefer
+    when: "ntp_primary is defined and 'asa' in group_names"
+
+  - name: ASA // REVERT secondary NTP server config
+    cisco.asa.asa_config:
+      lines:
+        - no ntp server {{ ntp_secondary }}
+    when: "ntp_secondary is defined and 'asa' in group_names"
+
+  - name: ASA // REVERT timezone config
+    cisco.asa.asa_config:
+      lines:
+        - clock timezone MST
+        - clock summer-time MDT -7
+    when: "timezone is defined and 'asa' in group_names"
